@@ -1,0 +1,53 @@
+# Ignore all contents of these folders...
+data/*
+!data/README.md
+models/*
+!models/README.md
+exp/*
+
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# VSCode and IDE settings
+.vscode/
+.idea/
+
+# Mac system files
+.DS_Store
+
+# Swap/backup files
+*.swp
+*.swo
+*~
+
+# Logs and outputs
+*.log
+
+# Python packaging
+build/
+dist/
+*.egg-info/
+
+# Git and DVC
+*.dvc
+.dvc/
+
+# Test, coverage, pytest cache
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# LFS placeholder
+*.lfs
