@@ -5,6 +5,7 @@ from ..utils import _topk, _tranpose_and_gather_feat
 from utils.pointcloud import generate_pc_box_hm
 from utils.ddd_utils import project_to_image_torch
 from model.networks.lfanet import LFANet, MapChannels
+from model.networks.rgpnet import RadarGaussianParamNet
 import torch
 from torch import nn
 import cv2
@@ -158,6 +159,9 @@ class BaseModel(nn.Module):
     if opt.use_lfa:
       # Set up LFA 
       self.lfa = LFANet(opt)
+
+    if opt.use_rgpnet:
+      self.rgp = RadarGaussianParamNet()
     
     if opt.lfa_match_channels:
       # Create mapping layer
@@ -233,6 +237,14 @@ class BaseModel(nn.Module):
                 # Use the LFA heatmap generation
                 pc_box_hm = self.lfa.generate_lfa_pc_box_hm_torch(batch, z, 'val')
                 z['pc_box_hm'] = pc_box_hm
+              elif self.opt.use_rgpnet:
+                # Use RGP heatmap generation
+                pc_hm = batch.get('pc_hm', None)
+                pc_box_hm = self.rgp.generate_rgp_pc_box_hm_torch(z, pc_hm,
+                                               batch['calib'], self.opt,
+                                               batch.get('trans_original', None))
+                z['pc_box_hm'] = pc_box_hm
+
               else:
                 # Use Nabatis heatmap generation
                 pc_hm = batch.get('pc_hm', None)
@@ -254,6 +266,17 @@ class BaseModel(nn.Module):
               # Use prediction of prim head as input to LFANet
               pc_box_hm = self.lfa.generate_lfa_pc_box_hm_torch(batch, z, 'train')
               z['pc_box_hm'] = pc_box_hm
+          elif self.opt.use_rgpnet:
+            pc_hm = batch.get('pc_hm', None)
+            # This is the key fix: run RGPNet and get its predicted heatmap
+            pc_box_hm, rgp_mean, rgp_cov, valid_mask, rgp_gt_mean = self.rgp.generate_rgp_pc_box_hm_torch_with_ann(z, pc_hm,
+                                batch['calib'], self.opt,
+                                batch.get('trans_original', None), batch)
+            z['pc_box_hm'] = pc_box_hm  # optional, for debug
+            z['rgp_mean'] = rgp_mean  # optional, for debug
+            z['rgp_cov'] = rgp_cov  # optional, for debug
+            z['rgp_valid_mask'] = valid_mask  # optional, for debug
+            z['rgp_gt_mean'] = rgp_gt_mean
           else:
             pc_box_hm = batch.get('pc_box_hm', None)
             

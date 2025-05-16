@@ -734,59 +734,59 @@ class LFANet(nn.Module):
             frustum_bounds = batch['frustum_bounds'][img_ind][obj_ind]
             out[self.opt.pc_dep_index] = torch.clamp(out[self.opt.pc_dep_index], min=frustum_bounds[0], max=frustum_bounds[1])
             
-          # Debug LFANet
-          if self.opt.debug > 1:
-            # Create obj from image
-            obj = dict()
-            obj['dim'] = batch['dim'][img_ind][obj_ind]
-            obj['location'] = batch['location'][img_ind][obj_ind]
-            obj['rotation_y'] = batch['rotation_y'][img_ind][obj_ind]
-            if 'cat' in self.opt.snap_channels:
-              obj['cat'] = batch['cat'][img_ind][obj_ind]
-            if 'cat_id' in self.opt.snap_channels:
-              obj['category_id'] = batch['cat'][img_ind][obj_ind] + 1
+          # # Debug LFANet
+          # if self.opt.debug > 1:
+          #   # Create obj from image
+          #   obj = dict()
+          #   obj['dim'] = batch['dim'][img_ind][obj_ind]
+          #   obj['location'] = batch['location'][img_ind][obj_ind]
+          #   obj['rotation_y'] = batch['rotation_y'][img_ind][obj_ind]
+          #   if 'cat' in self.opt.snap_channels:
+          #     obj['cat'] = batch['cat'][img_ind][obj_ind]
+          #   if 'cat_id' in self.opt.snap_channels:
+          #     obj['category_id'] = batch['cat'][img_ind][obj_ind] + 1
             
-            if self.opt.debug > 2:
-              # Compare snaps
+          #   if self.opt.debug > 2:
+          #     # Compare snaps
 
-              # Compute distance threshold with 3D BB 
-              dist_thresh = get_dist_thresh_torch(None, None, obj['dim'], None, self.opt, 'train', \
-                                                  obj['location'], obj['rotation_y'], device)
+          #     # Compute distance threshold with 3D BB 
+          #     dist_thresh = get_dist_thresh_torch(None, None, obj['dim'], None, self.opt, 'train', \
+          #                                         obj['location'], obj['rotation_y'], device)
 
-              # Differ between different snap generation methods
-              pc_3d = copy.deepcopy(batch['pc_3d'][img_ind][:,0:batch['pc_N'][img_ind]])
+          #     # Differ between different snap generation methods
+          #     pc_3d = copy.deepcopy(batch['pc_3d'][img_ind][:,0:batch['pc_N'][img_ind]])
 
-              if self.opt.snap_method == 'proj':
-                snap_BEV, _, _, _, _ = generate_snap_BEV_torch(pc_3d, obj, dist_thresh, self.opt)       
-                snap_proj = snap.squeeze()
-              elif self.opt.snap_method == 'BEV':
-                snap_proj, _, _, _, _ = generate_snap_proj_torch(pc_3d, batch['pc_snap_proj'][img_ind], obj, batch['bbox'][img_ind][obj_ind], dist_thresh, \
-                                                                  batch['trans_original'][img_ind], self.opt, batch['calib'][img_ind])  
-                snap_BEV = snap.squeeze()
+          #     if self.opt.snap_method == 'proj':
+          #       snap_BEV, _, _, _, _ = generate_snap_BEV_torch(pc_3d, obj, dist_thresh, self.opt)       
+          #       snap_proj = snap.squeeze()
+          #     elif self.opt.snap_method == 'BEV':
+          #       snap_proj, _, _, _, _ = generate_snap_proj_torch(pc_3d, batch['pc_snap_proj'][img_ind], obj, batch['bbox'][img_ind][obj_ind], dist_thresh, \
+          #                                                         batch['trans_original'][img_ind], self.opt, batch['calib'][img_ind])  
+          #       snap_BEV = snap.squeeze()
 
-              # snap1 = snap.squeeze()
-              snap_BEV = np.around(snap_BEV.detach().cpu().numpy(),2)
-              snap_proj = np.around(snap_proj.detach().cpu().numpy(),2)
+          #     # snap1 = snap.squeeze()
+          #     snap_BEV = np.around(snap_BEV.detach().cpu().numpy(),2)
+          #     snap_proj = np.around(snap_proj.detach().cpu().numpy(),2)
 
-              # Only plot something if snaps do not match perfectly
-              if not np.all(snap_BEV==snap_proj):
-                idxxx = np.where(snap_BEV!=snap_proj)[0][0]
-                print(f'Channel {self.opt.snap_channels[idxxx]} plotted')
-                snap_BEV_norm = snap_BEV[idxxx,:,::-1] + np.abs(np.min((0, snap_BEV[idxxx,:,:].min())))
-                snap_proj_norm = snap_proj[idxxx,:,::-1] + np.abs(np.min((0, snap_proj[idxxx,:,:].min())))
-                snap_BEV_norm = np.array((snap_BEV_norm * (1/(snap_BEV_norm.max()+1e-9))),dtype=np.float32)
-                snap_proj_norm = np.array((snap_proj_norm * (1/(snap_proj_norm.max()+1e-9))),dtype=np.float32)
+          #     # Only plot something if snaps do not match perfectly
+          #     if not np.all(snap_BEV==snap_proj):
+          #       idxxx = np.where(snap_BEV!=snap_proj)[0][0]
+          #       print(f'Channel {self.opt.snap_channels[idxxx]} plotted')
+          #       snap_BEV_norm = snap_BEV[idxxx,:,::-1] + np.abs(np.min((0, snap_BEV[idxxx,:,:].min())))
+          #       snap_proj_norm = snap_proj[idxxx,:,::-1] + np.abs(np.min((0, snap_proj[idxxx,:,:].min())))
+          #       snap_BEV_norm = np.array((snap_BEV_norm * (1/(snap_BEV_norm.max()+1e-9))),dtype=np.float32)
+          #       snap_proj_norm = np.array((snap_proj_norm * (1/(snap_proj_norm.max()+1e-9))),dtype=np.float32)
             
-                cv2.imshow('BEV', cv2.resize(snap_BEV_norm.T, (640,640), interpolation=cv2.INTER_AREA))
-                cv2.imshow('proj', cv2.resize(snap_proj_norm.T, (640,640), interpolation=cv2.INTER_AREA))
+          #       cv2.imshow('BEV', cv2.resize(snap_BEV_norm.T, (640,640), interpolation=cv2.INTER_AREA))
+          #       cv2.imshow('proj', cv2.resize(snap_proj_norm.T, (640,640), interpolation=cv2.INTER_AREA))
 
-                cv2.waitKey()
+          #       cv2.waitKey()
             
-            # obj['velocity'] = batch['velocity'][img_ind][obj_ind]
-            # # Plot radar points, bounding box and depth esimation 
-            # fig, ax = plt.subplots()
-            # debug_lfa_frustum(obj, out, snap, ax, self.opt, 'train') # (phase might be wrong. This fnc is also called in val)
-            # plt.show()
+          #   # obj['velocity'] = batch['velocity'][img_ind][obj_ind]
+          #   # # Plot radar points, bounding box and depth esimation 
+          #   # fig, ax = plt.subplots()
+          #   # debug_lfa_frustum(obj, out, snap, ax, self.opt, 'train') # (phase might be wrong. This fnc is also called in val)
+          #   # plt.show()
           
           # Forward LFA output to sec heads by filling in the pc box heatmap
           if self.opt.lfa_forward_to_sec:

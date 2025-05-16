@@ -589,7 +589,6 @@ def pc_hm_to_box_torch(pc_box_hm, pc_hm, pc_hm_add, dep, location, bbox, dist_th
         within_thresh = (nonzero_pc_dep < dep + dist_thresh) \
                 & (nonzero_pc_dep > max(0, dep - dist_thresh)) # boolean indexing
       num_points_in_frustum = torch.sum(within_thresh).item()
-      print(f"Number of radar points in frustum torch: {num_points_in_frustum}")
 
 
       # DEBUG
@@ -725,8 +724,6 @@ def pc_hm_to_box(pc_box_hm, pc_hm, pc_hm_add, ann, bbox, dist_thresh, opt, eval_
         ## Get points within dist threshold, i.e. within frustum
         within_thresh = (nonzero_pc_dep < dep_gt+dist_thresh) \
                 & (nonzero_pc_dep > max(0, dep_gt-dist_thresh)) # boolean indexing
-      num_points_in_frustum = np.sum(within_thresh)
-      print(f"Number of radar points in frustum numpy: {num_points_in_frustum}")
       
         
       pc_dep_match = nonzero_pc_dep[within_thresh]

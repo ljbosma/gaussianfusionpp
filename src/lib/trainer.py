@@ -13,7 +13,7 @@ from model.model import eval_layers
 from utils.utils import AverageMeter
 
 from model.losses import FastFocalLoss, LFALoss, RegWeightedL1Loss, \
-                         DepthLoss, BinRotLoss, WeightedBCELoss
+                         DepthLoss, BinRotLoss, WeightedBCELoss, RGPNetLoss
 from model.decode import fusion_decode
 from model.utils import _sigmoid
 from utils.debugger import Debugger
@@ -43,6 +43,8 @@ class GenericLoss(torch.nn.Module):
     self.crit_dep = DepthLoss()
     if opt.use_lfa:
       self.crit_lfa = LFALoss()
+    if opt.use_rgpnet:
+      self.crit_rgpnet = RGPNetLoss(opt)
 
   def _sigmoid_output(self, output):
     if 'hm' in output:
@@ -73,6 +75,13 @@ class GenericLoss(torch.nn.Module):
     losses = {head: torch.tensor(0, device=opt.device, dtype=torch.float32) for head in opt.heads}
     if not opt.lfa_skip_loss:
       losses.update({'pc_lfa_feat': torch.tensor(0, device=opt.device, dtype=torch.float32)})
+
+    if opt.use_rgpnet:
+      losses.update({
+        'rgpnet_tot': torch.tensor(0.0, device=opt.device),
+        'rgpnet_nll': torch.tensor(0.0, device=opt.device),
+        'rgpnet_hm': torch.tensor(0.0, device=opt.device)
+      })
 
 
     for s in range(opt.num_stacks):
@@ -150,12 +159,50 @@ class GenericLoss(torch.nn.Module):
             # This loss is quite large and hard to interpret since every pixel in the hm are compared. It is recommended to skip it with --lfa_skip_loss if not needed.
             losses['pc_lfa_feat'] += self.crit_lfa(
               output['pc_box_hm'], batch['pc_box_hm'], lfa_with_ann=False) / opt.num_stacks
+      
+      if opt.use_rgpnet:
+        if 'pc_box_hm' in output:
+          if 'rgp_mean' in output and 'rgp_cov' in output and 'rgp_valid_mask' in output and 'rgp_gt_mean' in output and phase == 'train' and opt.rgp_with_ann:
+            rgpnet_loss_tot, rgpnet_nll_loss, rgpnet_hm_loss = self.crit_rgpnet(
+              pred_mean=output['rgp_mean'],
+              pred_cov=output['rgp_cov'],
+              gt_means=output['rgp_gt_mean'],
+              rgp_valid_mask=output['rgp_valid_mask'],
+              pc_box_hm_pred=output['pc_box_hm'],
+              pc_box_hm_gt=batch['pc_box_hm'],
+              rgp_with_ann=True
+            )
+            losses['rgpnet_tot'] += rgpnet_loss_tot
+            losses['rgpnet_nll'] += rgpnet_nll_loss
+            losses['rgpnet_hm'] += rgpnet_hm_loss
+
+          else:
+            pc_box_hm_pred = output['pc_box_hm']
+
+            rgpnet_loss_tot, rgpnet_mean_loss, rgpnet_hm_loss = self.crit_rgpnet(
+              pred_mean=None,
+              pred_cov=None,
+              gt_means=None,
+              rgp_valid_mask=None,
+              pc_box_hm_pred=pc_box_hm_pred,
+              pc_box_hm_gt=batch['pc_box_hm'],
+              rgp_with_ann=False,
+            )
+            losses['rgpnet_tot'] += rgpnet_loss_tot
+            losses['rgpnet_nll'] += rgpnet_mean_loss
+            losses['rgpnet_hm'] += rgpnet_hm_loss
+
     losses['tot'] = 0
+    
     for head in opt.heads:
       losses['tot'] += opt.weights[head] * losses[head]
+
     if 'pc_lfa_feat' in output and (output['pc_lfa_feat'].requires_grad \
                                     or phase == 'val') and not opt.lfa_skip_loss:
       losses['tot'] += opt.weights['pc_lfa_feat'] * losses['pc_lfa_feat']
+
+    if opt.use_rgpnet:
+      losses['tot'] += losses['rgpnet_tot'] * opt.weights['rgpnet_tot']
     
     return losses['tot'], losses
 
@@ -347,6 +394,8 @@ class Trainer(object):
       'amodel_offset', 'ltrb_amodel', 'tracking', 'nuscenes_att', 'velocity']
     if opt.use_lfa:
       loss_states = ['pc_lfa_feat']
+    if opt.use_rgpnet:
+      loss_states = ['rgpnet_tot', 'rgpnet_nll', 'rgpnet_hm']
     else:
       loss_states = []
     loss_states = ['tot'] + loss_states + [k for k in loss_order if k in opt.heads]

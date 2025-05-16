@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import _init_paths
 import os
+import shutil
 
 import torch
 import torch.utils.data
@@ -43,7 +44,7 @@ def main(opt):
   opt.device = torch.device('cuda' if opt.gpus[0] >= 0 else 'cpu')
   logger = Logger(opt)
   loss_keys_2d = ['hm', 'wh', 'reg']
-  loss_keys_3d = ['dep', 'dep_sec', 'dim', 'rot', 'rot_sec', 'amodel_offset', 'nuscenes_att', 'velocity', 'pc_lfa_feat']
+  loss_keys_3d = ['dep', 'dep_sec', 'dim', 'rot', 'rot_sec', 'amodel_offset', 'nuscenes_att', 'velocity', 'rgpnet']
 
   # Get and print information about current GPU setup
   if torch.cuda.is_available():
@@ -136,7 +137,7 @@ def main(opt):
           'dep': 0.1, 'dep_sec': 0.1,
           'dim': 0.1, 'rot': 0.1, 'rot_sec': 0.1,
           'amodel_offset': 0.1, 'nuscenes_att': 0.1,
-          'velocity': 0.1, 'pc_lfa_feat': 0.1
+          'velocity': 0.1, 'rgpnet_tot': 0.1
       })
       if epoch == 1:
         print("🧊 Phase 1: Frozen backbone, strong 2D supervision")
@@ -150,7 +151,7 @@ def main(opt):
           'dep': 0.5, 'dep_sec': 0.5,
           'dim': 0.5, 'rot': 0.5, 'rot_sec': 0.5,
           'amodel_offset': 0.5, 'nuscenes_att': 0.5,
-          'velocity': 0.5, 'pc_lfa_feat': 0.5
+          'velocity': 0.5, 'rgpnet_tot': 0.5
       })
       if epoch == phase1_end + 1:
         print("🪄 Phase 2: Backbone unfrozen, start co-adaptation")
@@ -162,7 +163,7 @@ def main(opt):
           'dep': 2.0, 'dep_sec': 2.0,
           'dim': 2.0, 'rot': 2.0, 'rot_sec': 2.0,
           'amodel_offset': 1.0, 'nuscenes_att': 1.0,
-          'velocity': 2.0, 'pc_lfa_feat': 2.0
+          'velocity': 2.0, 'rgpnet_tot': 2.0
       })
       if epoch == phase3_start:
         print("🚀 Phase 3: Full 3D OD focus")
@@ -234,6 +235,17 @@ def main(opt):
           epochs_without_improvement = 0
           save_model(os.path.join(opt.save_dir, 'model_best.pth'), 
                       epoch, model, optimizer)
+          
+          # Copy debug folder to debug_best
+          debug_dir = os.path.join(opt.save_dir, 'debug')
+          debug_best_dir = os.path.join(opt.save_dir, 'debug_best')
+
+          if os.path.exists(debug_dir):
+            if os.path.exists(debug_best_dir):
+              shutil.rmtree(debug_best_dir)
+            shutil.copytree(debug_dir, debug_best_dir)
+            print(f"📁 Copied debug folder to {debug_best_dir}")
+
         else:
           epochs_without_improvement += 1
           print(f"No improvement for {epochs_without_improvement} epoch(s).")

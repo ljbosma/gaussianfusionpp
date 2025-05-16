@@ -456,6 +456,19 @@ class opts(object):
     self.parser.add_argument('--lfa_proj_vel_to_rad', action='store_true', 
                              help='Engineering solution to improve performance of LFANet since pred velocity always needs to be radial -> restrict degree of freedom by projecting the predicted absolute value onto the radial axis.')     
 
+    # RGPNet
+    self.parser.add_argument('--use_rgpnet', action='store_true', 
+                             help='Activate the usage of RGPNet. We cant activate RGPNet and LFANet at the same time') 
+    self.parser.add_argument('--rgp_with_ann', action='store_true',
+                             help='Input annotations in RGPNet in training.')
+    self.parser.add_argument('--rgp_pred_thresh', type=float, default=0.0,
+                             help='Threshold for certainty score of prediction.')    
+    self.parser.add_argument('--rgpnet_nll_weight', type=float, default=0.5, help='weight for RGP NLL regression loss')
+    self.parser.add_argument('--rgpnet_hm_weight', type=float, default=0.5, help='weight for RGP heatmap reconstruction loss')
+    self.parser.add_argument('--rgpnet_tot_weight', type=float, default=1.0, help='weight for RGP tot regression loss')
+    self.parser.add_argument('--rgp_min_points', type=int, default=2, help='minimum number of points needed to use RGPNet')
+
+    
     # Early Fusion
     self.parser.add_argument('--use_early_fusion', action='store_true',
                              help='Activate early fusion.')
@@ -795,6 +808,12 @@ class opts(object):
                    'velocity': opt.velocity_weight}
     opt.weights = {head: weight_dict[head] for head in opt.heads}
     
+    # Add RGPNet loss weight if used
+    if opt.use_rgpnet:
+      opt.weights['rgpnet_tot'] = opt.rgpnet_tot_weight
+      opt.weights['rgpnet_nll'] = opt.rgpnet_nll_weight
+      opt.weights['rgpnet_hm'] = opt.rgpnet_hm_weight
+
     if opt.use_lfa: 
       opt.weights.update({'pc_lfa_feat': opt.pc_lfa_feat_weight})
        # Check whether pillar size is odd, +1 if not

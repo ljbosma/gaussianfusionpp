@@ -363,5 +363,73 @@ class LFALoss(nn.Module):
       return torch.tensor(0.0).cuda()
     else:
       return loss
-    
 
+import torch
+import torch.nn as nn
+
+
+class RGPNetLoss(nn.Module):
+    def __init__(self, opt):
+        super(RGPNetLoss, self).__init__()
+        self.nll_weight = opt.rgpnet_nll_weight
+        self.hm_weight = opt.rgpnet_hm_weight
+        self.hm_loss = nn.L1Loss(reduction='mean')
+        self.eps = 1e-6
+
+    def forward(self, pred_mean, pred_cov, gt_means, rgp_valid_mask, pc_box_hm_pred, pc_box_hm_gt, rgp_with_ann=True):
+        """
+        Args:
+          pred_mean:       (B, K, 2)
+          pred_cov:        (B, K, 2, 2)
+          gt_means:        (B, K, 2)
+          rgp_valid_mask:  (B, K) - 1 if valid, 0 otherwise
+          pc_box_hm_pred:  (B, C, H, W)
+          pc_box_hm_gt:    (B, C, H, W)
+          rgp_with_ann:    (bool) Whether to use supervision for NLL
+        """
+        device = pc_box_hm_pred.device
+        B, K, _ = pred_mean.shape
+
+        # Always compute heatmap loss
+        loss_hm = self.hm_loss(pc_box_hm_pred, pc_box_hm_gt)
+
+        # If not using annotation supervision, return only heatmap loss
+        if not rgp_with_ann or gt_means is None or pred_cov is None:
+            total_loss = loss_hm
+            loss_nll = torch.tensor(0.0, device=device)
+            return total_loss, loss_nll, loss_hm
+
+        # Prepare masks
+        valid_mask = rgp_valid_mask.bool()  # (B, K)
+        total_loss_nll = 0.0
+        count = 0
+
+        for b in range(B):
+            vm = valid_mask[b]  # (K,)
+            if vm.sum() == 0:
+                continue
+
+            mu = pred_mean[b][vm]     # (K_valid, 2)
+            cov = pred_cov[b][vm]     # (K_valid, 2, 2)
+            gt = gt_means[b][vm]      # (K_valid, 2)
+
+            # Gaussian NLL
+            diff = (gt - mu).unsqueeze(-1)  # (K_valid, 2, 1)
+            eye = torch.eye(2, device=device).unsqueeze(0).expand(cov.size(0), -1, -1)  # (K_valid, 2, 2)
+            cov = cov + self.eps * eye  # numerical stability
+            cov_inv = torch.inverse(cov)  # (K_valid, 2, 2)
+            logdet = torch.logdet(cov)  # (K_valid,)
+
+            mahal = torch.matmul(diff.transpose(1, 2), torch.matmul(cov_inv, diff))  # (K_valid, 1, 1)
+            nll = 0.5 * (logdet + mahal.squeeze())  # (K_valid,)
+
+            total_loss_nll += nll.sum()
+            count += nll.numel()
+
+        if count > 0:
+            loss_nll = total_loss_nll / count
+        else:
+            loss_nll = torch.tensor(0.0, device=device)
+
+        total_loss = self.nll_weight * loss_nll + self.hm_weight * loss_hm
+        return total_loss, loss_nll, loss_hm

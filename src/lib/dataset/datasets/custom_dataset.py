@@ -239,7 +239,7 @@ def compute_nds(avg_ATE, avg_ASE, avg_AOE, avg_AVE, mAP=None):
     tp_scores = [ate_score, ase_score, aoe_score, ave_score]
     mAP_score = mAP if mAP is not None else 0.0
 
-    nds = (5 * mAP_score + sum(tp_scores)) / 9.0
+    nds = (4 * mAP_score + sum(tp_scores)) / 8.0
     return nds
 
 
