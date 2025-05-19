@@ -236,15 +236,16 @@ def main(opt):
           save_model(os.path.join(opt.save_dir, 'model_best.pth'), 
                       epoch, model, optimizer)
           
-          # Copy debug folder to debug_best
-          debug_dir = os.path.join(opt.save_dir, 'debug')
-          debug_best_dir = os.path.join(opt.save_dir, 'debug_best')
+          if epoch > 20:
+            # Copy debug folder to debug_best
+            debug_dir = os.path.join(opt.save_dir, 'debug')
+            debug_best_dir = os.path.join(opt.save_dir, 'debug_best')
 
-          if os.path.exists(debug_dir):
-            if os.path.exists(debug_best_dir):
-              shutil.rmtree(debug_best_dir)
-            shutil.copytree(debug_dir, debug_best_dir)
-            print(f"📁 Copied debug folder to {debug_best_dir}")
+            if os.path.exists(debug_dir):
+              if os.path.exists(debug_best_dir):
+                shutil.rmtree(debug_best_dir)
+              shutil.copytree(debug_dir, debug_best_dir)
+              print(f"📁 Copied debug folder to {debug_best_dir}")
 
         else:
           epochs_without_improvement += 1

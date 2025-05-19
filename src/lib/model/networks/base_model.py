@@ -161,7 +161,7 @@ class BaseModel(nn.Module):
       self.lfa = LFANet(opt)
 
     if opt.use_rgpnet:
-      self.rgp = RadarGaussianParamNet()
+      self.rgp = RadarGaussianParamNet(opt)
     
     if opt.lfa_match_channels:
       # Create mapping layer

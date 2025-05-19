@@ -467,6 +467,12 @@ class opts(object):
     self.parser.add_argument('--rgpnet_hm_weight', type=float, default=0.5, help='weight for RGP heatmap reconstruction loss')
     self.parser.add_argument('--rgpnet_tot_weight', type=float, default=1.0, help='weight for RGP tot regression loss')
     self.parser.add_argument('--rgp_min_points', type=int, default=2, help='minimum number of points needed to use RGPNet')
+    self.parser.add_argument('--rgp_hidden_dim', type=int, default=64, help='number of hidden dims per layer in RGPNet')
+    self.parser.add_argument('--rgp_num_layers', type=int, default=2, help='number of (input + hidden) layers in RGPNet')
+    self.parser.add_argument('--rgp_bn_hidden_layers', action='store_true', help='Use batch normalisation between hidden layers of RGPNet')
+    self.parser.add_argument('--rgp_dropout', action='store_true', help='Use dropout between hidden layers of RGPNet')
+    self.parser.add_argument('--rgp_dropout_probability', type=float, default=0.1, 
+                             help='Probability of randomly dropping out an activation in a layer.')
 
     
     # Early Fusion

@@ -8,18 +8,28 @@ from utils.pointcloud import get_dist_thresh_torch, get_alpha
 import numpy as np
 
 class RadarGaussianParamNet(nn.Module):
-    def __init__(self, input_dim=2, hidden_dim=64):
+    def __init__(self, opt, input_dim=2):
         super(RadarGaussianParamNet, self).__init__()
 
-        self.mlp = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU()
-        )
+        self.hidden_dim = opt.rgp_hidden_dim
+        self.num_layers = opt.rgp_num_layers
 
-        self.mean_head = nn.Linear(hidden_dim, 2)  # [μ_x, μ_d]
-        self.cov_head = nn.Linear(hidden_dim, 3)   # [log_σ_x, log_σ_d, tanh_ρ]
+        layers = []
+        in_dim = input_dim
+
+        for i in range(self.num_layers):
+            layers.append(nn.Linear(in_dim, self.hidden_dim))
+            if opt.rgp_bn_hidden_layers:
+                layers.append(nn.BatchNorm1d(self.hidden_dim))
+            if opt.rgp_dropout:
+                layers.append(nn.Dropout(p=opt.rgp_dropout_probability))
+            layers.append(nn.ReLU())
+            in_dim = self.hidden_dim  # next input dim
+
+        self.mlp = nn.Sequential(*layers)
+
+        self.mean_head = nn.Linear(self.hidden_dim, 2)  # [μ_x, μ_d]
+        self.cov_head = nn.Linear(self.hidden_dim, 3)   # [log_σ_x, log_σ_d, tanh_ρ]
 
     def forward(self, radar_points):
         B, N, D = radar_points.shape
@@ -31,7 +41,8 @@ class RadarGaussianParamNet(nn.Module):
         cov_params = self.cov_head(pooled)
 
         log_std = cov_params[:, :2]
-        rho = torch.tanh(cov_params[:, 2])
+        log_std = torch.clamp(log_std, min=-5.0, max=5.0)
+        rho = torch.clamp(torch.tanh(cov_params[:, 2]), min=-0.99, max=0.99)
 
         std = torch.exp(log_std)
         cov_matrices = []
@@ -134,6 +145,10 @@ class RadarGaussianParamNet(nn.Module):
                 diff = coords[0] - mean[0]
                 inv_cov = torch.inverse(cov[0])
                 weights = torch.exp(-0.5 * (diff @ inv_cov * diff).sum(dim=1))
+                weights_sum = weights.sum()
+                if weights_sum < 1e-8:
+                    weights_sum = torch.tensor(1e-8, device=weights.device)
+                weights = weights / weights_sum
                 weights = weights / (weights.sum() + 1e-6)
 
                 weighted_depth = (weights * coords[0][:, 1]).sum()
@@ -146,6 +161,12 @@ class RadarGaussianParamNet(nn.Module):
                 w_max = int(ct[0] + w_interval / 2.)
                 h_min = int(ct[1] - h_interval / 2.)
                 h_max = int(ct[1] + h_interval / 2.)
+
+                H, W = pc_box_hm.shape[2], pc_box_hm.shape[3]
+                h_min = max(0, h_min)
+                h_max = min(H - 1, h_max)
+                w_min = max(0, w_min)
+                w_max = min(W - 1, w_max)
 
                 pc_box_hm[i, opt.pc_feat_channels['pc_dep'], h_min:h_max+1, w_min:w_max+1] = weighted_depth
 
@@ -161,7 +182,7 @@ class RadarGaussianParamNet(nn.Module):
             # No ground-truth objects in the batch
             pc_box_hm = torch.zeros_like(pc_hm)
             dummy_mean = torch.zeros(1, opt.max_objs, 2, device=pc_hm.device)
-            dummy_cov = torch.zeros(1, opt.max_objs, 2, device=pc_hm.device)
+            dummy_cov = torch.zeros(1, opt.max_objs, 2, 2, device=pc_hm.device)
             dummy_valid_mask = torch.zeros(1, opt.max_objs, dtype=torch.bool, device=pc_hm.device)
             dummy_gt_coords = torch.full((1, opt.max_objs), -1, device=pc_hm.device, dtype=torch.int64)
             return pc_box_hm, dummy_mean, dummy_cov, dummy_valid_mask, dummy_gt_coords
@@ -206,13 +227,13 @@ class RadarGaussianParamNet(nn.Module):
             valid_mask = batch['reg_mask'][i] > 0
             gt_locs = batch['location'][i][valid_mask.squeeze(-1)]  # [N, 3]
             proj_gt = project_to_image_torch(gt_locs.T, calib_b)  # [N, 2]
-            gt_xs = proj_gt[:, 0]
+            gt_xs = proj_gt[0, :]
             gt_zs = gt_locs[:, 2]
 
             for j, [bbox, depth, dim, alpha, score] in enumerate(zip(bboxes_b, depth_b, dim_b, alpha_b, score_b)):
                 if score < opt.rgp_pred_thresh:
                     all_means.append(torch.zeros(1, 2, device=device))
-                    all_covs.append(torch.zeros(2, 2, device=device))
+                    all_covs.append(torch.zeros(1, 2, 2, device=device))
                     all_valids.append(False)
                     matched_gt_coords.append(torch.tensor([[-1.0, -1.0]], device=device))
                     continue
@@ -237,7 +258,7 @@ class RadarGaussianParamNet(nn.Module):
 
                 if len(nonzero_inds[0]) == 0:
                     all_means.append(torch.zeros(1, 2, device=device))
-                    all_covs.append(torch.zeros(2, 2, device=device))
+                    all_covs.append(torch.zeros(1, 2, 2, device=device))
                     all_valids.append(False)
                     matched_gt_coords.append(torch.tensor([[-1.0, -1.0]], device=device))
                     continue
@@ -256,18 +277,19 @@ class RadarGaussianParamNet(nn.Module):
                     within_thresh = (depths_roi < depth + dist_thresh) & (depths_roi > max(0, depth - dist_thresh))
 
                 coords = coords[within_thresh].unsqueeze(0)
+                # print(f"Coords = {coords}")
 
                 if coords.shape[1] == 0:
                     all_means.append(torch.zeros(1, 2, device=device))
-                    all_covs.append(torch.zeros(2, 2, device=device))
+                    all_covs.append(torch.zeros(1, 2, 2, device=device))
                     all_valids.append(False)
                     matched_gt_coords.append(torch.tensor([[-1.0, -1.0]], device=device))
                     continue
 
                 # ✅ NOW check GT center-x and depth inclusion
-                print(f"bbox pred is {bbox}")
-                print(f"gt_xs is {gt_xs}")
-                print(f"gt_zs is {gt_zs}")
+                # print(f"bbox pred is {bbox}")
+                # print(f"gt_xs is {gt_xs}")
+                # print(f"gt_zs is {gt_zs}")
                 bbox_xmin = bbox[0].item()
                 bbox_xmax = bbox[2].item()
                 min_z = torch.clamp(depth - dist_thresh, min=0.0)
@@ -284,6 +306,7 @@ class RadarGaussianParamNet(nn.Module):
                         matched_idx = matching[0].item()  # Take the first matching GT
                         gt_center_x = gt_xs[matched_idx].unsqueeze(0)  # (1,)
                         gt_depth = gt_zs[matched_idx].unsqueeze(0)     # (1,)
+                        # print(f"Mean GT is {gt_center_x, gt_depth}")
                         matched_gt_coords.append(torch.stack([gt_center_x, gt_depth], dim=1))  # (1, 2)
                     else:
                         matched_gt_coords.append(torch.tensor([[-1.0, -1.0]], device=device))  # Or something invalid
@@ -291,12 +314,16 @@ class RadarGaussianParamNet(nn.Module):
                     matched_gt_coords.append(torch.tensor([[-1.0, -1.0]], device=device))
 
                 mean, cov = self.forward(coords)
-                print(mean)
+                # print(f"Mean pred is {mean}")
                 all_means.append(mean)
                 all_covs.append(cov)
                 diff = coords[0] - mean[0]
                 inv_cov = torch.inverse(cov[0])
                 weights = torch.exp(-0.5 * (diff @ inv_cov * diff).sum(dim=1))
+                weights_sum = weights.sum()
+                if weights_sum < 1e-8:
+                    weights_sum = torch.tensor(1e-8, device=weights.device)
+                weights = weights / weights_sum
                 weights = weights / (weights.sum() + 1e-6)
 
                 weighted_depth = (weights * coords[0][:, 1]).sum()
@@ -309,6 +336,12 @@ class RadarGaussianParamNet(nn.Module):
                 w_max = int(ct[0] + w_interval / 2.)
                 h_min = int(ct[1] - h_interval / 2.)
                 h_max = int(ct[1] + h_interval / 2.)
+
+                H, W = pc_box_hm.shape[2], pc_box_hm.shape[3]
+                h_min = max(0, h_min)
+                h_max = min(H - 1, h_max)
+                w_min = max(0, w_min)
+                w_max = min(W - 1, w_max)
 
                 pc_box_hm[i, opt.pc_feat_channels['pc_dep'], h_min:h_max+1, w_min:w_max+1] = weighted_depth
 

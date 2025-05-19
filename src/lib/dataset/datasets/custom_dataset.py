@@ -242,6 +242,22 @@ def compute_nds(avg_ATE, avg_ASE, avg_AOE, avg_AVE, mAP=None):
     nds = (4 * mAP_score + sum(tp_scores)) / 8.0
     return nds
 
+def compute_metrics_from_matches(matches):
+    ATEs, ASEs, AOE_s, AVE_s = [], [], [], []
+    for match in matches:
+        pred = match['pred']
+        gt = match['ground_truth']
+        ATEs.append(average_translation_error(np.array(pred['loc']), np.array(gt['location'])))
+        ASEs.append(average_scale_error(np.array(pred['dim']), np.array(gt['dim'])))
+        AOE_s.append(average_orientation_error(pred['rot_y'], gt['rotation_y']))
+        AVE_s.append(average_velocity_error(np.array(pred['velocity']), np.array(gt['velocity_cam'][0:3])))
+
+    avg_ATE = np.mean(ATEs) if ATEs else 0
+    avg_ASE = np.mean(ASEs) if ASEs else 0
+    avg_AOE = np.mean(AOE_s) if AOE_s else 0
+    avg_AVE = np.mean(AVE_s) if AVE_s else 0
+
+    return avg_ATE, avg_ASE, avg_AOE, avg_AVE
 
 
 
@@ -349,18 +365,21 @@ class CustomDataset(GenericDataset):
     # Custom 3D/kinematic metrics
     ATEs, ASEs, AOE_s, AVE_s = [], [], [], []
     print(f"Number of matches = {len(matches)}")
-    for match in matches:
-        pred = match['pred']
-        gt = match['ground_truth']
-        ATEs.append(average_translation_error(np.array(pred['loc']), np.array(gt['location'])))
-        ASEs.append(average_scale_error(np.array(pred['dim']), np.array(gt['dim'])))
-        AOE_s.append(average_orientation_error(pred['rot_y'], gt['rotation_y']))
-        AVE_s.append(average_velocity_error(np.array(pred['velocity']), np.array(gt['velocity_cam'][0:3])))
 
-    avg_ATE = np.mean(ATEs) if ATEs else 0
-    avg_ASE = np.mean(ASEs) if ASEs else 0
-    avg_AOE = np.mean(AOE_s) if AOE_s else 0
-    avg_AVE = np.mean(AVE_s) if AVE_s else 0
+    # Initialize grouped metric containers
+    grouped_matches = {'0_100': [], '100_300': [], '300+': []}
+
+    for match in matches:
+        depth = match['ground_truth']['location'][2]
+        if depth < 100:
+            grouped_matches['0_100'].append(match)
+        elif depth < 300:
+            grouped_matches['100_300'].append(match)
+        else:
+            grouped_matches['300+'].append(match)
+
+    # Global metrics
+    avg_ATE, avg_ASE, avg_AOE, avg_AVE = compute_metrics_from_matches(matches)
 
     # Custom 2D detection stats
     accuracy, precision, recall, f1 = accuracy_precision_recall_f1(tp, fp, fn)
@@ -446,6 +465,20 @@ class CustomDataset(GenericDataset):
         'NDS': nds
     }
     metrics.update(coco_metrics)
+
+    # Compute metrics for the different depth ranges
+    depth_metrics = {}
+    for key, match_list in grouped_matches.items():
+      avg_ATE_g, avg_ASE_g, avg_AOE_g, avg_AVE_g = compute_metrics_from_matches(match_list)
+      depth_metrics[f"metrics_{key}"] = {
+          'Average Translation Error (ATE)': avg_ATE_g,
+          'Average Scale Error (ASE)': avg_ASE_g,
+          'Average Orientation Error (AOE)': avg_AOE_g,
+          'Average Velocity Error (AVE)': avg_AVE_g,
+          'Num Matches': len(match_list)
+      }
+
+    metrics.update(depth_metrics)
 
     out_dir = os.path.join(save_dir, 'custom_eval')
     os.makedirs(out_dir, exist_ok=True)
