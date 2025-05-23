@@ -216,7 +216,7 @@ def compute_nds(avg_ATE, avg_ASE, avg_AOE, avg_AVE, mAP=None):
       - ATE is divided by 100 (assumed upper bound of 100 meters)
       - ASE is already in [0, 1], no scaling needed
       - AOE is divided by π (maximum possible angular error)
-      - AVE is unscaled (assumed to be already in m/s range)
+      - AVE is unscaled (normalise by dividing by 9.4 because that is max magnitude for velocity)
 
     Parameters:
     - avg_ATE: Average Translation Error (in meters)
@@ -234,7 +234,7 @@ def compute_nds(avg_ATE, avg_ASE, avg_AOE, avg_AVE, mAP=None):
     ate_score = safe_score(avg_ATE / 100.0)
     ase_score = safe_score(avg_ASE)             # Already in [0, 1]
     aoe_score = safe_score(avg_AOE / np.pi)
-    ave_score = safe_score(avg_AVE)             # Use raw value (assumes max reasonable value ~1)
+    ave_score = safe_score(avg_AVE / 9.4)             # Use raw value (assumes max reasonable value ~1)
 
     tp_scores = [ate_score, ase_score, aoe_score, ave_score]
     mAP_score = mAP if mAP is not None else 0.0
