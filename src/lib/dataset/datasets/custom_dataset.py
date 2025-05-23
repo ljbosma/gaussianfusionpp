@@ -448,7 +448,7 @@ class CustomDataset(GenericDataset):
         }
 
     # NDS
-    nds = compute_nds(avg_ATE, avg_ASE, avg_AOE, avg_AVE, mAP=coco_metrics['AP@[IoU=0.50]'])
+    nds = compute_nds(avg_ATE, avg_ASE, avg_AOE, avg_AVE, mAP=coco_metrics['AP@[IoU=0.50:0.95]'])
 
     metrics = {
         'Average Translation Error (ATE)': avg_ATE,

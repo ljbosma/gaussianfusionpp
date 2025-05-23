@@ -224,36 +224,32 @@ def main(opt):
 
         # # === Early stopping ===
         if epoch >= phase3_start:
-            current_metric = -metrics.get('NDS', 0.0)  # Maximize NDS → minimize negative
-            print(f"[EarlyStopping - Phase 3] Using NDS = {metrics.get('NDS', 0.0):.6f}")
-        else:
-            current_metric = log_dict_val.get('tot', float('inf'))
-            print(f"[EarlyStopping - Phase 1/2] Using val_tot = {current_metric:.6f}")
+          current_metric = -metrics.get('NDS', 0.0)  # Maximize NDS → minimize negative
+          print(f"[EarlyStopping - Phase 3] Using NDS = {metrics.get('NDS', 0.0):.6f}")
 
-        if current_metric < best_metric:
-          best_metric = current_metric
-          epochs_without_improvement = 0
-          save_model(os.path.join(opt.save_dir, 'model_best.pth'), 
-                      epoch, model, optimizer)
-          
-          if epoch > 20:
-            # Copy debug folder to debug_best
-            debug_dir = os.path.join(opt.save_dir, 'debug')
-            debug_best_dir = os.path.join(opt.save_dir, 'debug_best')
+          if current_metric < best_metric:
+              best_metric = current_metric
+              epochs_without_improvement = 0
+              save_model(os.path.join(opt.save_dir, 'model_best.pth'), 
+                          epoch, model, optimizer)
 
-            if os.path.exists(debug_dir):
-              if os.path.exists(debug_best_dir):
-                shutil.rmtree(debug_best_dir)
-              shutil.copytree(debug_dir, debug_best_dir)
-              print(f"📁 Copied debug folder to {debug_best_dir}")
+              if epoch > 20:
+                  # Copy debug folder to debug_best
+                  debug_dir = os.path.join(opt.save_dir, 'debug')
+                  debug_best_dir = os.path.join(opt.save_dir, 'debug_best')
 
-        else:
-          epochs_without_improvement += 1
-          print(f"No improvement for {epochs_without_improvement} epoch(s).")
+                  if os.path.exists(debug_dir):
+                      if os.path.exists(debug_best_dir):
+                          shutil.rmtree(debug_best_dir)
+                      shutil.copytree(debug_dir, debug_best_dir)
+                      print(f"📁 Copied debug folder to {debug_best_dir}")
+          else:
+              epochs_without_improvement += 1
+              print(f"No improvement for {epochs_without_improvement} epoch(s).")
 
-        if epochs_without_improvement >= opt.early_stop_patience:
-          print(f"Early stopping at epoch {epoch} (best val_tot: {best_metric:.4f})")
-          break
+          if epochs_without_improvement >= opt.early_stop_patience:
+              print(f"Early stopping at epoch {epoch} (best NDS: {-best_metric:.4f})")
+              break
 
     else:
       save_model(os.path.join(opt.save_dir, 'model_last.pth'), 
