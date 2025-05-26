@@ -118,7 +118,7 @@ def main(opt):
   best_metric = float('inf')
   epochs_without_improvement = 0
   if not hasattr(opt, 'early_stop_patience'):
-    opt.early_stop_patience = 20
+    opt.early_stop_patience = 15
 
   
   # Loop over epochs
