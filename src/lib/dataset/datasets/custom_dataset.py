@@ -367,16 +367,16 @@ class CustomDataset(GenericDataset):
     print(f"Number of matches = {len(matches)}")
 
     # Initialize grouped metric containers
-    grouped_matches = {'0_100': [], '100_300': [], '300+': []}
+    grouped_matches = {'0_100': [], '100_250': [], '250+': []}
 
     for match in matches:
         depth = match['ground_truth']['location'][2]
         if depth < 100:
             grouped_matches['0_100'].append(match)
-        elif depth < 300:
-            grouped_matches['100_300'].append(match)
+        elif depth < 250:
+            grouped_matches['100_250'].append(match)
         else:
-            grouped_matches['300+'].append(match)
+            grouped_matches['250+'].append(match)
 
     # Global metrics
     avg_ATE, avg_ASE, avg_AOE, avg_AVE = compute_metrics_from_matches(matches)

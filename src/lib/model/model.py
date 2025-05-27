@@ -26,12 +26,14 @@ def create_model(arch, head, head_conv, local_pretrained_path=None, opt=None):
   num_layers = int(arch[arch.find('_') + 1:]) if '_' in arch else 0
   arch = arch[:arch.find('_')] if '_' in arch else arch
   model_class = _network_factory[arch]
-  model = model_class(num_layers, heads=head, head_convs=head_conv, local_pretrained_path=local_pretrained_path, opt=opt)
+  model = model_class(num_layers, heads=head, head_convs=head_conv, local_pretrained_path=None, opt=opt)
 
   if local_pretrained_path is not None:
     print(f"Loading pretrained weights from {local_pretrained_path}")
     ckpt = torch.load(local_pretrained_path, map_location='cpu')
     state_dict = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
+    if opt.use_early_fusion:
+      patch_input_conv_weights(model, state_dict)
     model_state_dict = model.state_dict()
 
     # Match and copy weights
@@ -48,6 +50,21 @@ def create_model(arch, head, head_conv, local_pretrained_path=None, opt=None):
 
   return model
 
+def patch_input_conv_weights(model, pretrained_state_dict):
+    key = 'base.base_layer.0.weight'
+
+    if key in pretrained_state_dict:
+        pretrained_weight = pretrained_state_dict[key]  # [out_c, 3, k, k]
+        current_weight = model.state_dict()[key].clone()  # [out_c, in_c, k, k]
+
+        if pretrained_weight.shape[1] <= current_weight.shape[1]:
+            print(f"Patching '{key}' for early fusion: copying pretrained RGB weights into first 3 channels.")
+            # Copy only the RGB channels
+            current_weight[:, :3, :, :] = pretrained_weight
+            # Keep remaining channels as-is (default init from model)
+            pretrained_state_dict[key] = current_weight
+        else:
+            print(f"Warning: Cannot patch '{key}' — pretrained has more channels than model expects. Skipping.")
 
 def load_model(model, model_path, opt, optimizer=None):
   with torch.no_grad():
