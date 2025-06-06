@@ -246,7 +246,8 @@ def get_dist_thresh(calib, ct, dim, alpha, opt, phase=None, location = None, rot
       dist_thresh = (max(corners_3d[:,2]) - min(corners_3d[:,2])) / 2.0 # dist_thresh is the range for radar points to lie inside the frustum
     
       # Apply Expansion ratio
-      dist_thresh += dist_thresh * expansion_ratio
+      depth = location[2]
+      dist_thresh += dist_thresh * (expansion_ratio + opt.dynamicFrustumExpansionRatio * depth**2)
 
     else: # Use dist for frustum
       # Calculate distance threshold as vector of 2 values: upper and lower distance threshold
@@ -301,7 +302,8 @@ def get_dist_thresh_torch(calib, ct, dim, alpha, opt, phase=None, location=None,
     dist_thresh = (torch.amax(corners_3d[:,2]) - torch.amin(corners_3d[:,2])) / 2.0 # dist_thresh is the range for radar points to lie inside the frustum
     
     # Apply Expansion ratio
-    dist_thresh += dist_thresh * expansion_ratio
+    depth = location[2]
+    dist_thresh += dist_thresh * (expansion_ratio + opt.dynamicFrustumExpansionRatio * depth.item()**2)
 
   else: # Use dist for frustum
 
@@ -546,7 +548,8 @@ def pc_hm_to_box_torch(pc_box_hm, pc_hm, pc_hm_add, dep, location, bbox, dist_th
     ct = torch.tensor(
       [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2], dtype=torch.float32)
     w = bbox[2] - bbox[0]
-    expand_pixels = w * opt.frustum_expand_x
+    expand_pixels = w * (opt.frustum_expand_x + opt.dynamicFrustumExpansionRatio * dep.item()**2)
+    bbox = bbox.clone()
     bbox[0] -= expand_pixels / 2
     bbox[2] += expand_pixels / 2
 

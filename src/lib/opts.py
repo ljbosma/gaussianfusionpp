@@ -365,10 +365,13 @@ class opts(object):
     # Frustum
     self.parser.add_argument('--use_dist_for_frustum', action='store_true',
                              help='Instead of the Frustum based on depth, use distance to the radar points instead.')
-    self.parser.add_argument('--frustumExpansionRatioVal', type=float, default=3,
+    self.parser.add_argument('--frustumExpansionRatioVal', type=float, default=0,
                              help='Frustum size threshold gets multiplied by (1+frustumExpansionRatioVal) in Validation. Called delta in Paper')
-    self.parser.add_argument('--frustumExpansionRatioTrain', type=float, default=3,
+    self.parser.add_argument('--frustumExpansionRatioTrain', type=float, default=0,
                              help='Frustum size threshold gets multiplied by (1+frustumExpansionRatioTrain) in Training')
+    self.parser.add_argument('--dynamicFrustumExpansionRatio', type=float, default=0,
+                             help='Dynamic frustum expansion parameter for both horizontal and depthwise directions (K in report)')
+
     # Snapshot (LFANet) 
     self.parser.add_argument('--snap_resolution', type=int, default=32,
                             help='Square resolution [res,res] of the snapshot taken'

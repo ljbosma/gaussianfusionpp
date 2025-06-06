@@ -107,7 +107,7 @@ class RadarGaussianParamNet(nn.Module):
                 dist_thresh = get_dist_thresh_torch(calib_b, ct_trans, dim, alpha, opt, phase=phase, location=location, device=device)
 
                 w = bbox[2] - bbox[0]
-                expand_pixels = w * opt.frustum_expand_x
+                expand_pixels = w * (opt.frustum_expand_x + opt.dynamicFrustumExpansionRatio * depth.item()**2)
                 bbox = bbox.clone()  # Make a new tensor to avoid in-place ops on a view
                 bbox[0] = bbox[0] - expand_pixels / 2
                 bbox[2] = bbox[2] + expand_pixels / 2
@@ -244,7 +244,7 @@ class RadarGaussianParamNet(nn.Module):
                 dist_thresh = get_dist_thresh_torch(calib_b, ct_trans, dim, alpha, opt, phase=phase, location=location, device=device)
 
                 w = bbox[2] - bbox[0]
-                expand_pixels = w * opt.frustum_expand_x
+                expand_pixels = w * (opt.frustum_expand_x + opt.dynamicFrustumExpansionRatio * depth.item()**2)
                 bbox = bbox.clone()  # Make a new tensor to avoid in-place ops on a view
                 bbox[0] = bbox[0] - expand_pixels / 2
                 bbox[2] = bbox[2] + expand_pixels / 2
