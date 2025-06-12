@@ -368,6 +368,9 @@ import torch
 import torch.nn as nn
 
 
+import torch
+import torch.nn as nn
+
 class RGPNetLoss(nn.Module):
     def __init__(self, opt):
         super(RGPNetLoss, self).__init__()
@@ -389,49 +392,59 @@ class RGPNetLoss(nn.Module):
         """
         device = pc_box_hm_pred.device
 
-        # Always compute heatmap loss
+        # === Heatmap Loss (always computed) ===
         loss_hm = self.hm_loss(pc_box_hm_pred, pc_box_hm_gt)
 
-        # If not using annotation supervision, return only heatmap loss
+        # === If no annotation-based NLL supervision, return only HM loss ===
         if not rgp_with_ann or gt_means is None or pred_cov is None:
-            total_loss = loss_hm
             loss_nll = torch.tensor(0.0, device=device)
-            return total_loss, loss_nll, loss_hm
-        
-        else:
-          B, K, _ = pred_mean.shape
+            return loss_hm, loss_nll, loss_hm
 
-          # Prepare masks
-          valid_mask = rgp_valid_mask.bool()  # (B, K)
-          total_loss_nll = 0.0
-          count = 0
+        B, K, _ = pred_mean.shape
+        total_loss_nll = 0.0
+        count = 0
 
-          for b in range(B):
-              vm = valid_mask[b]  # (K,)
-              if vm.sum() == 0:
-                  continue
+        for b in range(B):
+            vm = rgp_valid_mask[b].bool()  # (K,)
+            if vm.sum() == 0:
+                continue
 
-              mu = pred_mean[b][vm]     # (K_valid, 2)
-              cov = pred_cov[b][vm]     # (K_valid, 2, 2)
-              gt = gt_means[b][vm]      # (K_valid, 2)
+            mu = pred_mean[b][vm]     # (K_valid, 2)
+            cov = pred_cov[b][vm]     # (K_valid, 2, 2)
+            gt = gt_means[b][vm]      # (K_valid, 2)
 
-              # Gaussian NLL
-              diff = (gt - mu).unsqueeze(-1)  # (K_valid, 2, 1)
-              eye = torch.eye(2, device=device).unsqueeze(0).expand(cov.size(0), -1, -1)  # (K_valid, 2, 2)
-              cov = cov + self.eps * eye  # numerical stability
-              cov_inv = torch.inverse(cov)  # (K_valid, 2, 2)
-              logdet = torch.logdet(cov)  # (K_valid,)
+            diff = (gt - mu).unsqueeze(-1)  # (K_valid, 2, 1)
 
-              mahal = torch.matmul(diff.transpose(1, 2), torch.matmul(cov_inv, diff))  # (K_valid, 1, 1)
-              nll = 0.5 * (logdet + mahal.squeeze())  # (K_valid,)
+            # Add small epsilon to diagonal for stability
+            eye = torch.eye(2, device=device).unsqueeze(0).expand(cov.size(0), -1, -1)
+            cov = cov + self.eps * eye  # (K_valid, 2, 2)
 
-              total_loss_nll += nll.sum()
-              count += nll.numel()
+            try:
+                # Cholesky decomposition (lower-triangular L such that LLᵀ = cov)
+                L = torch.cholesky(cov)  # (K_valid, 2, 2)
 
-          if count > 0:
-              loss_nll = total_loss_nll / count
-          else:
-              loss_nll = torch.tensor(0.0, device=device)
+                # Mahalanobis distance: diffᵀ @ Σ⁻¹ @ diff = yᵀ @ y where y = L⁻¹ @ diff
+                y = torch.cholesky_solve(diff, L)  # (K_valid, 2, 1)
+                mahal = torch.sum(diff * y, dim=(1, 2))  # (K_valid,)
 
-          total_loss = self.nll_weight * loss_nll + self.hm_weight * loss_hm
-          return total_loss, loss_nll, loss_hm
+                # Log determinant: log|Σ| = 2 * sum(log(diag(L)))
+                diag_L = torch.diagonal(L, dim1=1, dim2=2)
+                logdet = 2.0 * torch.sum(torch.log(diag_L + self.eps), dim=1)
+
+                # Clamp to avoid exploding loss
+                logdet = torch.clamp(logdet, min=-10.0, max=10.0)
+                mahal = torch.clamp(mahal, min=0.0, max=100.0)
+
+                nll = 0.5 * (logdet + mahal)
+
+            except RuntimeError as e:
+                print(f"❗ Cholesky decomposition failed on batch {b}: {e}")
+                nll = torch.zeros(vm.sum(), device=device)
+
+            total_loss_nll += nll.sum()
+            count += nll.numel()
+
+        loss_nll = total_loss_nll / count if count > 0 else torch.tensor(0.0, device=device)
+        total_loss = self.nll_weight * loss_nll + self.hm_weight * loss_hm
+
+        return total_loss, loss_nll, loss_hm

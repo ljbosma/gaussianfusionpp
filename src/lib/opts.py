@@ -365,9 +365,9 @@ class opts(object):
     # Frustum
     self.parser.add_argument('--use_dist_for_frustum', action='store_true',
                              help='Instead of the Frustum based on depth, use distance to the radar points instead.')
-    self.parser.add_argument('--frustumExpansionRatioVal', type=float, default=0,
+    self.parser.add_argument('--frustumExpansionRatioVal', type=float, default=3,
                              help='Frustum size threshold gets multiplied by (1+frustumExpansionRatioVal) in Validation. Called delta in Paper')
-    self.parser.add_argument('--frustumExpansionRatioTrain', type=float, default=0,
+    self.parser.add_argument('--frustumExpansionRatioTrain', type=float, default=3,
                              help='Frustum size threshold gets multiplied by (1+frustumExpansionRatioTrain) in Training')
     self.parser.add_argument('--dynamicFrustumExpansionRatio', type=float, default=0,
                              help='Dynamic frustum expansion parameter for both horizontal and depthwise directions (K in report)')
@@ -466,8 +466,8 @@ class opts(object):
                              help='Input annotations in RGPNet in training.')
     self.parser.add_argument('--rgp_pred_thresh', type=float, default=0.0,
                              help='Threshold for certainty score of prediction.')    
-    self.parser.add_argument('--rgpnet_nll_weight', type=float, default=0.5, help='weight for RGP NLL regression loss')
-    self.parser.add_argument('--rgpnet_hm_weight', type=float, default=0.5, help='weight for RGP heatmap reconstruction loss')
+    self.parser.add_argument('--rgpnet_nll_weight', type=float, default=0.05, help='weight for RGP NLL regression loss')
+    self.parser.add_argument('--rgpnet_hm_weight', type=float, default=1.0, help='weight for RGP heatmap reconstruction loss')
     self.parser.add_argument('--rgpnet_tot_weight', type=float, default=1.0, help='weight for RGP tot regression loss')
     self.parser.add_argument('--rgp_min_points', type=int, default=2, help='minimum number of points needed to use RGPNet')
     self.parser.add_argument('--rgp_hidden_dim', type=int, default=64, help='number of hidden dims per layer in RGPNet')
@@ -476,6 +476,11 @@ class opts(object):
     self.parser.add_argument('--rgp_dropout', action='store_true', help='Use dropout between hidden layers of RGPNet')
     self.parser.add_argument('--rgp_dropout_probability', type=float, default=0.1, 
                              help='Probability of randomly dropping out an activation in a layer.')
+    self.parser.add_argument('--use_token_mixing', action='store_true', help='Use token-mixing in RGPNet')
+    self.parser.add_argument('--max_pc_tokens', type=float, default=128, 
+                             help='Maximum number of radar points used by RGPNet if we include token-mixing.')
+    self.parser.add_argument('--num_mixer_blocks', type=int, default=1, 
+                             help='Number of mixer blocks in RGPNet is we use token-mixing.')
 
     
     # Early Fusion

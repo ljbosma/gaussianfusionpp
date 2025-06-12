@@ -7,56 +7,161 @@ from utils.image import transform_preds_with_trans_torch
 from utils.pointcloud import get_dist_thresh_torch, get_alpha
 import numpy as np
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+# ----------------- Farthest Point Sampling -----------------
+def farthest_point_sampling(xyz, n_samples):
+    """
+    xyz: [B, N, 2] - point coordinates (e.g., x and depth)
+    Returns: [B, n_samples] - indices of sampled points
+    """
+    B, N, _ = xyz.shape
+    device = xyz.device
+    centroids = torch.zeros(B, n_samples, dtype=torch.long, device=device)
+    distances = torch.full((B, N), 1e10, device=device)
+    farthest = torch.randint(0, N, (B,), dtype=torch.long, device=device)
+    batch_indices = torch.arange(B, dtype=torch.long, device=device)
+
+    for i in range(n_samples):
+        centroids[:, i] = farthest
+        centroid = xyz[batch_indices, farthest].unsqueeze(1)  # [B, 1, 2]
+        dist = torch.sum((xyz - centroid) ** 2, dim=2)        # [B, N]
+        mask = dist < distances
+        distances[mask] = dist[mask]
+        farthest = torch.max(distances, dim=1)[1]
+
+    return centroids
+
+# ----------------- Mixer Block -----------------
+class MixerBlock(nn.Module):
+    def __init__(self, num_tokens, hidden_dim):
+        super().__init__()
+        self.token_norm = nn.LayerNorm(hidden_dim)
+        self.token_mlp = nn.Sequential(
+            nn.Linear(num_tokens, num_tokens),
+            nn.GELU(),
+            nn.Linear(num_tokens, num_tokens)
+        )
+        self.channel_norm = nn.LayerNorm(hidden_dim)
+        self.channel_mlp = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim)
+        )
+
+    def forward(self, x):
+        # x: [B, N, C]
+        y = self.token_norm(x)
+        y = y.transpose(1, 2)        # [B, C, N]
+        y = self.token_mlp(y)
+        y = y.transpose(1, 2)        # [B, N, C]
+        x = x + y                    # token-mixing residual
+
+        z = self.channel_norm(x)
+        z = self.channel_mlp(z)
+        x = x + z                    # channel-mixing residual
+
+        return x
+
+# ----------------- RadarGaussianParamNet -----------------
 class RadarGaussianParamNet(nn.Module):
     def __init__(self, opt, input_dim=2):
         super(RadarGaussianParamNet, self).__init__()
 
+        self.use_token_mixing = getattr(opt, "use_token_mixing", False)
         self.hidden_dim = opt.rgp_hidden_dim
         self.num_layers = opt.rgp_num_layers
+        self.max_tokens = getattr(opt, "max_pc_tokens", 128)
+        self.num_mixer_blocks = getattr(opt, "num_mixer_blocks", 1)
 
-        layers = []
-        in_dim = input_dim
+        if self.use_token_mixing:
+            self.input_proj = nn.Linear(input_dim, self.hidden_dim)
+            self.mixer_blocks = nn.Sequential(*[
+                MixerBlock(self.max_tokens, self.hidden_dim)
+                for _ in range(self.num_mixer_blocks)
+            ])
+        else:
+            layers = []
+            in_dim = input_dim
+            for _ in range(self.num_layers):
+                layers.append(nn.Linear(in_dim, self.hidden_dim))
+                if opt.rgp_bn_hidden_layers:
+                    layers.append(nn.BatchNorm1d(self.hidden_dim))
+                if opt.rgp_dropout:
+                    layers.append(nn.Dropout(p=opt.rgp_dropout_probability))
+                layers.append(nn.ReLU())
+                in_dim = self.hidden_dim
+            self.mlp = nn.Sequential(*layers)
 
-        for i in range(self.num_layers):
-            layers.append(nn.Linear(in_dim, self.hidden_dim))
-            if opt.rgp_bn_hidden_layers:
-                layers.append(nn.BatchNorm1d(self.hidden_dim))
-            if opt.rgp_dropout:
-                layers.append(nn.Dropout(p=opt.rgp_dropout_probability))
-            layers.append(nn.ReLU())
-            in_dim = self.hidden_dim  # next input dim
+        self.mean_head = nn.Linear(self.hidden_dim, 2)
+        self.cov_head = nn.Linear(self.hidden_dim, 3)
 
-        self.mlp = nn.Sequential(*layers)
-
-        self.mean_head = nn.Linear(self.hidden_dim, 2)  # [μ_x, μ_d]
-        self.cov_head = nn.Linear(self.hidden_dim, 3)   # [log_σ_x, log_σ_d, tanh_ρ]
+        nn.init.constant_(self.cov_head.bias[:2], -1.0)  # softplus(-1.0) ≈ 0.31 std
+        nn.init.constant_(self.cov_head.bias[2], 0.0)
+        nn.init.normal_(self.cov_head.weight, std=1e-3)
 
     def forward(self, radar_points):
         B, N, D = radar_points.shape
-        x = radar_points.view(B * N, D)
-        feats = self.mlp(x).view(B, N, -1)
-        pooled = feats.max(dim=1)[0]
+
+        if self.use_token_mixing:
+            if N < self.max_tokens:
+                pad = torch.zeros(B, self.max_tokens - N, D, device=radar_points.device)
+                radar_points = torch.cat([radar_points, pad], dim=1)
+                mask = torch.zeros(B, self.max_tokens, dtype=torch.bool, device=radar_points.device)
+                mask[:, :N] = 1
+            elif N > self.max_tokens:
+                idx = farthest_point_sampling(radar_points[:, :, :2], self.max_tokens)
+                radar_points = torch.gather(
+                    radar_points, 1,
+                    idx.unsqueeze(-1).expand(-1, -1, D)
+                )
+                mask = torch.ones(B, self.max_tokens, dtype=torch.bool, device=radar_points.device)
+            else:
+                mask = torch.ones(B, self.max_tokens, dtype=torch.bool, device=radar_points.device)
+
+            x = self.input_proj(radar_points)  # [B, max_tokens, hidden_dim]
+            x = self.mixer_blocks(x)
+        else:
+            x = radar_points.view(B * N, D)
+            x = self.mlp(x).view(B, N, -1)
+            mask = torch.ones(B, N, dtype=torch.bool, device=radar_points.device)
+
+        # Apply masked max pooling
+        masked_x = x.clone()
+        masked_x[~mask.unsqueeze(-1)] = -1e9
+        pooled = masked_x.max(dim=1)[0]  # [B, hidden_dim]
 
         mean = self.mean_head(pooled)
         cov_params = self.cov_head(pooled)
 
-        log_std = cov_params[:, :2]
-        log_std = torch.clamp(log_std, min=-5.0, max=5.0)
+        # Clamp log_std and rho
+        log_std = torch.clamp(cov_params[:, :2], min=-2.0, max=5.0)
         rho = torch.clamp(torch.tanh(cov_params[:, 2]), min=-0.99, max=0.99)
 
-        std = torch.exp(log_std)
-        cov_matrices = []
-        for i in range(B):
-            sx, sd = std[i]
-            r = rho[i]
-            cov = torch.tensor([
-                [sx ** 2, r * sx * sd],
-                [r * sx * sd, sd ** 2]
-            ], device=radar_points.device)
-            cov_matrices.append(cov)
+        if torch.isnan(log_std).any() or torch.isnan(rho).any():
+            print("❗ NaN detected in log_std or rho!")
 
-        cov_matrices = torch.stack(cov_matrices)
+        std = torch.exp(log_std)  # std: [B, 2]
+
+        # Build differentiable covariance matrices
+        sx = std[:, 0]
+        sy = std[:, 1]
+        r = rho  # [B]
+
+        cov_00 = sx ** 2 + 1e-3
+        cov_01 = r * sx * sy
+        cov_11 = sy ** 2 + 1e-3
+
+        cov_matrices = torch.stack([
+            torch.stack([cov_00, cov_01], dim=1),  # [B, 2]
+            torch.stack([cov_01, cov_11], dim=1)   # [B, 2]
+        ], dim=1)  # Final shape: [B, 2, 2]
+
         return mean, cov_matrices
+
 
 
     def generate_rgp_pc_box_hm_torch(self, output, pc_hm, calibs, opt, trans_originals):

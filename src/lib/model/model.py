@@ -26,7 +26,7 @@ def create_model(arch, head, head_conv, local_pretrained_path=None, opt=None):
   num_layers = int(arch[arch.find('_') + 1:]) if '_' in arch else 0
   arch = arch[:arch.find('_')] if '_' in arch else arch
   model_class = _network_factory[arch]
-  model = model_class(num_layers, heads=head, head_convs=head_conv, local_pretrained_path=None, opt=opt)
+  model = model_class(num_layers, heads=head, head_convs=head_conv, local_pretrained_path="../models/dla34_ba72cf86.pth", opt=opt)
 
   if local_pretrained_path is not None:
     print(f"Loading pretrained weights from {local_pretrained_path}")
