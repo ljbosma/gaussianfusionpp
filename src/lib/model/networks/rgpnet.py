@@ -131,7 +131,7 @@ class RadarGaussianParamNet(nn.Module):
 
         # Apply masked max pooling
         masked_x = x.clone()
-        masked_x[~mask.unsqueeze(-1)] = -1e9
+        masked_x[~mask.unsqueeze(-1).expand_as(masked_x)] = -1e9
         pooled = masked_x.max(dim=1)[0]  # [B, hidden_dim]
 
         mean = self.mean_head(pooled)
