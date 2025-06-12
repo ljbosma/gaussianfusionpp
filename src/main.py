@@ -239,10 +239,12 @@ def main(opt):
                   debug_best_dir = os.path.join(opt.save_dir, 'debug_best')
 
                   if os.path.exists(debug_dir):
-                      if os.path.exists(debug_best_dir):
-                          shutil.rmtree(debug_best_dir)
-                      shutil.copytree(debug_dir, debug_best_dir)
-                      print(f"📁 Copied debug folder to {debug_best_dir}")
+                    if os.path.exists(debug_best_dir):
+                        shutil.rmtree(debug_best_dir)
+                    os.rename(debug_dir, debug_best_dir)
+                    os.makedirs(debug_dir)
+                    print(f"📁 Renamed {debug_dir} to {debug_best_dir} and recreated {debug_dir}")
+
           else:
               epochs_without_improvement += 1
               print(f"No improvement for {epochs_without_improvement} epoch(s).")
