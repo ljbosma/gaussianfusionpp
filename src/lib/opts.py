@@ -466,8 +466,8 @@ class opts(object):
                              help='Input annotations in RGPNet in training.')
     self.parser.add_argument('--rgp_pred_thresh', type=float, default=0.0,
                              help='Threshold for certainty score of prediction.')    
-    self.parser.add_argument('--rgpnet_nll_weight', type=float, default=0.05, help='weight for RGP NLL regression loss')
-    self.parser.add_argument('--rgpnet_hm_weight', type=float, default=1.0, help='weight for RGP heatmap reconstruction loss')
+    self.parser.add_argument('--rgpnet_nll_weight', type=float, default=0.2, help='weight for RGP NLL regression loss')
+    self.parser.add_argument('--rgpnet_hm_weight', type=float, default=0.8, help='weight for RGP heatmap reconstruction loss')
     self.parser.add_argument('--rgpnet_tot_weight', type=float, default=1.0, help='weight for RGP tot regression loss')
     self.parser.add_argument('--rgp_min_points', type=int, default=2, help='minimum number of points needed to use RGPNet')
     self.parser.add_argument('--rgp_hidden_dim', type=int, default=64, help='number of hidden dims per layer in RGPNet')

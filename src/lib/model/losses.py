@@ -364,19 +364,12 @@ class LFALoss(nn.Module):
     else:
       return loss
 
-import torch
-import torch.nn as nn
-
-
-import torch
-import torch.nn as nn
 
 class RGPNetLoss(nn.Module):
     def __init__(self, opt):
         super(RGPNetLoss, self).__init__()
         self.nll_weight = opt.rgpnet_nll_weight
         self.hm_weight = opt.rgpnet_hm_weight
-        self.hm_loss = nn.L1Loss(reduction='mean')
         self.eps = 1e-6
 
     def forward(self, pred_mean, pred_cov, gt_means, rgp_valid_mask, pc_box_hm_pred, pc_box_hm_gt, rgp_with_ann=True):
@@ -393,12 +386,13 @@ class RGPNetLoss(nn.Module):
         device = pc_box_hm_pred.device
 
         # === Heatmap Loss (always computed) ===
-        loss_hm = self.hm_loss(pc_box_hm_pred, pc_box_hm_gt)
+        loss_hm = F.l1_loss(pc_box_hm_pred, pc_box_hm_gt, reduction='sum')
 
         # === If no annotation-based NLL supervision, return only HM loss ===
         if not rgp_with_ann or gt_means is None or pred_cov is None:
             loss_nll = torch.tensor(0.0, device=device)
-            return loss_hm, loss_nll, loss_hm
+            total_loss = loss_hm
+            return total_loss, loss_nll, loss_hm
 
         B, K, _ = pred_mean.shape
         total_loss_nll = 0.0
