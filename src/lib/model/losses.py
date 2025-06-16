@@ -371,6 +371,7 @@ class RGPNetLoss(nn.Module):
         self.nll_weight = opt.rgpnet_nll_weight
         self.hm_weight = opt.rgpnet_hm_weight
         self.eps = 1e-6
+        self.num_stacks = opt.num_stacks
 
     def forward(self, pred_mean, pred_cov, gt_means, rgp_valid_mask, pc_box_hm_pred, pc_box_hm_gt, rgp_with_ann=True):
         """
@@ -386,7 +387,7 @@ class RGPNetLoss(nn.Module):
         device = pc_box_hm_pred.device
 
         # === Heatmap Loss (always computed) ===
-        loss_hm = F.l1_loss(pc_box_hm_pred, pc_box_hm_gt, reduction='sum')
+        loss_hm = F.l1_loss(pc_box_hm_pred, pc_box_hm_gt, reduction='sum') / self.num_stacks
 
         # === If no annotation-based NLL supervision, return only HM loss ===
         if not rgp_with_ann or gt_means is None or pred_cov is None:
