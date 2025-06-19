@@ -548,7 +548,7 @@ def pc_hm_to_box_torch(pc_box_hm, pc_hm, pc_hm_add, dep, location, bbox, dist_th
     ct = torch.tensor(
       [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2], dtype=torch.float32)
     w = bbox[2] - bbox[0]
-    expand_pixels = w * (opt.frustum_expand_x + opt.dynamicFrustumExpansionRatio * dep.item()**2)
+    expand_pixels = w * min(opt.frustum_expand_x + opt.dynamicFrustumExpansionRatio * dep.item()**2, 2)
     bbox = bbox.clone()
     bbox[0] -= expand_pixels / 2
     bbox[2] += expand_pixels / 2
